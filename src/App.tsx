@@ -1,43 +1,44 @@
 import { useState } from 'react'
-import { DialRoot, useDialKitController } from 'dialkit'
-import 'dialkit/styles.css'
-import { SocialLinks } from './SocialLinks'
-import { AppleCredit, FoldablePhone, FoldScrubber, FoldToggle, PhoneBackground, PhoneDevice } from './iphone-duo'
+import { useMotionValueEvent } from 'motion/react'
+import { AppleCredit, FoldablePhone, FoldScrubber, FoldToggle, PhoneBackground, PhoneDevice, useFoldablePhone } from './iphone-duo'
 
-const wallpapers = ['lock', 'tide', 'ink'] as const
+// Asset URLs respect Vite's base path so the site also works under a sub-path (GitHub Pages).
+const asset = (path: string) => `${import.meta.env.BASE_URL}${path}`
+
+const screens = {
+  model: asset('models/iphone-duo.glb'),
+  inner: asset('screens/inner.png'),
+  cover: asset('screens/outer.png'),
+  innerBackground: asset('screens/inner-bg.svg'),
+  coverBackground: asset('screens/outer-bg.svg'),
+  // Inner-screen animations. MP4 (H.264, hardware-decoded) first for real browsers; headless capture can't play it and falls back to WebM.
+  // Remove both to use the still image only.
+  innerVideoOpen: [asset('screens/inner-open.mp4'), asset('screens/inner-open.webm')],   // plays when the fold passes the opening angle while opening
+  innerVideoClose: [asset('screens/inner-close.mp4'), asset('screens/inner-close.webm')], // plays when the fold passes the closing angle while closing
+  // Fold angles, in degrees: the opening video starts once the fold passes the first while opening,
+  // the closing video once it passes the second while closing.
+  innerVideoStartDegrees: 70,
+  innerVideoCloseStartDegrees: 120,
+  // Rounded corner radius of the inner display content, as a fraction of its height (103px of 1252px).
+  innerCorner: 103 / 1252,
+}
+
+function FoldDegrees() {
+  const { progress } = useFoldablePhone()
+  const [degrees, setDegrees] = useState(Math.round(progress.get() * 180))
+  useMotionValueEvent(progress, 'change', value => setDegrees(Math.round(value * 180)))
+  return <output aria-label="Opening angle">{degrees}°</output>
+}
 
 export default function App() {
-  const [tuning, setTuning] = useState(false)
   const [dark, setDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches)
-  const dial = useDialKitController('iPhone Duo', {
-    fold: [0, 0, 180, 1],
-    duration: [2, 0.2, 4, 0.05],
-    blur: [48, 0, 80, 1],
-    parallax: [1, 0, 2, 0.05],
-    exposure: [1.2, 0.5, 2, 0.05],
-    background: { type: 'select', options: ['Studio', 'Sand', 'Slate'], default: 'Studio' },
-    screen: { type: 'image', options: wallpapers.map(name => ({ value: `/wallpapers/${name === 'lock' ? 'apple-desert.avif' : `${name}.svg`}`, label: name })), default: '/wallpapers/apple-desert.avif' },
-    cover: { type: 'image', options: wallpapers.map(name => ({ value: `/wallpapers/${name === 'lock' ? 'apple-desert-cover.avif' : `${name}.svg`}`, label: name })), default: '/wallpapers/apple-desert-cover.avif' },
-  }, { id: 'iphone-duo', persist: true })
-  const { values } = dial
-  function chooseWallpaper(name: string) {
-    dial.setValues({ screen: `/wallpapers/${name === 'lock' ? 'apple-desert.avif' : `${name}.svg`}`, cover: `/wallpapers/${name === 'lock' ? 'apple-desert-cover.avif' : `${name}.svg`}` })
-  }
   return <main className={dark ? 'page dark' : 'page'}>
-    <FoldablePhone className="phone-study" value={values.fold / 180} onValueChange={value => dial.setValue('fold', value * 180)} duration={values.duration}>
-      <PhoneBackground data-background={values.background} />
-      <PhoneDevice modelSrc="/models/iphone-duo.glb" screenSrc={values.screen} coverSrc={values.cover} rotation={-6} exposure={values.exposure} blur={values.blur} parallax={values.parallax} revealSrc={values.screen === '/wallpapers/apple-desert.avif' ? '/wallpapers/home-photo.svg' : undefined} screenOverlaySrc={values.screen === '/wallpapers/apple-desert.avif' ? '/wallpapers/api-apps.svg' : undefined} coverOverlaySrc={values.cover === '/wallpapers/apple-desert-cover.avif' ? '/wallpapers/api-cover.svg' : undefined} />
-      <div className="phone-controls">
-        <div className="fold-controls"><FoldToggle /><FoldScrubber /><output aria-label="Opening angle">{Math.round(values.fold)}°</output></div>
-        <div className="wallpaper-controls" role="group" aria-label="Wallpaper">
-          {wallpapers.map(name => <button key={name} type="button" aria-label={`${name} wallpaper`} aria-pressed={values.screen === `/wallpapers/${name === 'lock' ? 'apple-desert.avif' : `${name}.svg`}`} onClick={() => chooseWallpaper(name)}><img src={`/wallpapers/${name === 'lock' ? 'apple-desert-cover.avif' : `${name}.svg`}`} width="28" height="28" alt="" /></button>)}
-        </div>
-      </div>
+    <FoldablePhone className="phone-study" defaultValue={0} duration={2}>
+      <PhoneBackground />
+      <PhoneDevice modelSrc={screens.model} screenSrc={screens.innerBackground} coverSrc={screens.coverBackground} screenOverlaySrc={screens.inner} coverOverlaySrc={screens.cover} screenVideoSrc={screens.innerVideoOpen} screenCloseVideoSrc={screens.innerVideoClose} screenVideoStart={screens.innerVideoStartDegrees / 180} screenCloseVideoStart={screens.innerVideoCloseStartDegrees / 180} screenCorner={screens.innerCorner} rotation={-6} exposure={1.2} blur={48} parallax={1} />
+      <div className="phone-controls"><FoldToggle /><FoldScrubber /><FoldDegrees /></div>
       <div className="phone-caption"><span>Drag to unfold. Click to open or close.</span><AppleCredit /></div>
     </FoldablePhone>
-    <nav className="page-actions" aria-label="Page controls"><button type="button" onClick={() => setDark(!dark)}>{dark ? 'Light mode' : 'Dark mode'}</button><a href="https://www.apple.com/iphone-duo/" target="_blank" rel="noopener noreferrer">iPhone Duo</a></nav>
-    <SocialLinks />
-    <button className="tuning-toggle" type="button" aria-expanded={tuning} aria-controls="phone-tuning" onClick={() => setTuning(!tuning)}>{tuning ? 'Close controls' : 'Tune'}</button>
-    <aside id="phone-tuning" className="tuning-panel" aria-label="Phone settings" hidden={!tuning}><DialRoot mode="inline" defaultOpen theme={dark ? 'dark' : 'light'} productionEnabled /></aside>
+    <nav className="page-actions" aria-label="Page controls"><button type="button" onClick={() => setDark(!dark)}>{dark ? 'Light mode' : 'Dark mode'}</button></nav>
   </main>
 }

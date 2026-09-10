@@ -11,3 +11,4 @@ playwright-report/
 /public/wallpapers/reference-*.png
 
 /example/
+__pycache__/

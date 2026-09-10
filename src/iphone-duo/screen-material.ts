@@ -2,7 +2,7 @@ import { Matrix4, ShaderMaterial, Vector2 } from 'three'
 
 export function createScreenMaterial(cover: boolean) {
   return new ShaderMaterial({
-    uniforms: { bodyInverse: { value: new Matrix4() }, screenMap: { value: undefined }, overlayMap: { value: undefined }, hasOverlay: { value: 0 }, revealMap: { value: undefined }, hasReveal: { value: 0 }, resolution: { value: new Vector2(1600, 1200) }, progress: { value: 0 }, focusEdge: { value: cover ? 1.25 : 0.5 }, defocus: { value: 1 }, blur: { value: 28 }, parallax: { value: 1 }, cover: { value: cover ? 1 : 0 } },
+    uniforms: { bodyInverse: { value: new Matrix4() }, screenMap: { value: undefined }, overlayMap: { value: undefined }, hasOverlay: { value: 0 }, revealMap: { value: undefined }, hasReveal: { value: 0 }, resolution: { value: new Vector2(1600, 1200) }, progress: { value: 0 }, focusEdge: { value: cover ? 1.25 : 0.5 }, defocus: { value: 1 }, blur: { value: 28 }, parallax: { value: 1 }, cover: { value: cover ? 1 : 0 }, overlayCorner: { value: 0 }, overlayAspect: { value: 1 }, overlayEncoded: { value: 0 } },
     vertexShader: `
       uniform mat4 bodyInverse;
       varying vec2 screenUv;
@@ -32,6 +32,9 @@ export function createScreenMaterial(cover: boolean) {
       uniform float defocus;
       uniform float blur;
       uniform float cover;
+      uniform float overlayCorner;
+      uniform float overlayAspect;
+      uniform float overlayEncoded;
       varying vec2 screenUv;
       varying vec3 displayPosition;
       varying vec3 displayCamera;
@@ -39,6 +42,21 @@ export function createScreenMaterial(cover: boolean) {
       varying vec3 coverEnd;
       vec4 sampleLayer(sampler2D layer, vec2 uv, float lod) {
         return mix(texture2D(layer, uv), textureLod(layer, uv, lod), smoothstep(0.0, 1.0, lod));
+      }
+      // Video textures are uploaded without sRGB hardware decoding (three.js forces a linear transfer for them),
+      // so their samples arrive sRGB-encoded and must be linearized here like the image textures already are.
+      vec3 decodeOverlay(vec3 c) {
+        if (overlayEncoded < 0.5) return c;
+        vec3 low = c / 12.92;
+        vec3 high = pow((c + 0.055) / 1.055, vec3(2.4));
+        return mix(high, low, vec3(lessThanEqual(c, vec3(0.04045))));
+      }
+      float overlayMask(vec2 uv) {
+        if (overlayCorner <= 0.0) return 1.0;
+        vec2 extent = vec2(0.5 * overlayAspect, 0.5);
+        vec2 p = abs(uv - 0.5) * vec2(overlayAspect, 1.0) - (extent - overlayCorner);
+        float d = length(max(p, 0.0)) - overlayCorner;
+        return 1.0 - smoothstep(-0.0015, 0.0015, d);
       }
       vec4 sampleScreen(vec2 uv, float lod) {
         vec2 backgroundUv = clamp((uv - 0.5) * 0.97 + 0.5, vec2(0.001), vec2(0.999));
@@ -49,8 +67,9 @@ export function createScreenMaterial(cover: boolean) {
         background.rgb = mix(background.rgb, reveal.rgb, reveal.a * hasReveal * revealInside);
         vec2 contentUv = uv;
         vec4 content = sampleLayer(overlayMap, clamp(contentUv, vec2(0.001), vec2(0.999)), lod);
+        content.rgb = decodeOverlay(content.rgb);
         float inside = step(0.0, contentUv.x) * step(contentUv.x, 1.0) * step(0.0, contentUv.y) * step(contentUv.y, 1.0);
-        return vec4(mix(background.rgb, content.rgb, content.a * hasOverlay * inside), 1.0);
+        return vec4(mix(background.rgb, content.rgb, content.a * hasOverlay * inside * overlayMask(contentUv)), 1.0);
       }
       void main() {
         vec3 ray = displayPosition - displayCamera;

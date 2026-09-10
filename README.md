@@ -1,118 +1,66 @@
-# iPhone Duo
+# DOOD · iPhone Duo
 
-A composable React folding-phone study with drag-to-fold interaction, layered screen content, and progressive blur. Built with React 19, Three.js, and Motion. The demo includes DialKit controls, API-sourced app icons, and a Mastra Factory reveal card.
+**Live: https://bonxn.github.io/dood-iphone-duo/**
 
-The 3D phone model and desert wallpapers are by [Apple](https://www.apple.com/iphone-duo/). This is an independent study, not an Apple product or an official Mastra announcement.
+An interactive folding iPhone Duo mockup showing the DOOD app's cover and inner screens, plus a script that renders the fold transition to video. Built on [jal-co/iphone-duo](https://github.com/jal-co/iphone-duo) (React 19, Three.js, Motion). The 3D model is by [Apple](https://www.apple.com/iphone-duo/).
 
-## Run locally
+## Run
 
-Use Node.js 22.12 or newer.
+Node.js 22.12 or newer.
 
 ```sh
 npm ci
 npm run dev -- --host 127.0.0.1 --port 5201
 ```
 
-Open `http://127.0.0.1:5201`. Drag horizontally across the phone, click to toggle, or scrub the transition. The Tune panel adjusts duration, blur, content parallax, lighting, backgrounds, and screen images. Demo settings persist locally.
+Open `http://127.0.0.1:5201`. Drag horizontally across the phone, click it to toggle, or scrub the slider.
+
+## Screens
+
+`public/screens/` holds the display content:
+
+| File | Surface | Canvas |
+| --- | --- | --- |
+| `outer.png` | Cover screen (closed) | 932 × 1356, from Figma frame `Outer Closed Landscape` at 2x |
+| `inner.png` | Inner screen (open) | 1780 × 1252, from Figma frame `Inner Open Portrait - Split View` at 2x |
+| `outer-bg.svg`, `inner-bg.svg` | Flat backdrop behind each overlay | 800 × 1120, 1600 × 1120 |
+
+To update a design: export the frame from Figma as PNG (2x or 3x) to `public/screens/raw/outer.png` or `inner.png`, then run `python3 scripts/prepare-screens.py`. A transparent export is cropped to its opaque bounds; an opaque render on Figma's dark backdrop gets its rounded corners made transparent so the phone's own bezel shows through.
+
+### Animated inner screen
+
+The inner display can play videos instead of the still. `src/App.tsx` points `innerVideoOpen` at `public/screens/inner-open.mp4` and `innerVideoClose` at `inner-close.mp4`, each with a WebM fallback that headless Chromium uses for capture. When the fold passes `innerVideoStartDegrees` (70°) while opening, the opening video restarts from 0; when it passes `innerVideoCloseStartDegrees` (120°) while closing, the closing video restarts from 0. Each video holds its last frame when it ends. The opening video's first frame is the poster before any transition; the still image is shown until a video can play, and alone if the files are missing. Leave out `innerVideoClose` to rewind the opening video on close instead.
+
+To install your own animations (any format, ideally 890 × 626 or 1780 × 1252 at 30fps):
+
+```sh
+sh scripts/prepare-screen-video.sh path/to/opening.mov open
+sh scripts/prepare-screen-video.sh path/to/closing.mov close
+```
+
+This scales and center-crops to 1780 × 1252 and writes both encodings. `sh scripts/make-placeholder-video.sh` builds stand-in clips from the still for testing the pipeline. Rounded corners are masked in the shader (`innerCorner`), so the videos can have square corners.
+
+## Render the video
+
+```sh
+npx playwright install chromium   # once
+npm run render          # full: closed 1s → unfold 2s → open 2s → fold 2s → closed 1s (8s)
+npm run render:unfold   # unfold only: closed 0.5s → unfold 2s → open 1.5s (4s)
+```
+
+`scripts/render-video.mjs` starts the dev server if needed, captures the clip at 1920 × 1080, 30fps, and writes `exports/duo-fold.mp4` or `exports/duo-unfold.mp4` plus a `<clip>-contact-sheet.jpg` and proof frames in `exports/proofs/<clip>/`. Timelines live in the `clips` table at the top of the script. When a screen video is configured, the capture seeks it frame by frame so it stays exactly in sync with the fold.
+
+## Test and build
 
 ```sh
 npm run build
-npm run preview
-npx playwright install chromium
 npm test
 ```
 
-## Use the component
+## Deploy
 
-Copy `src/iphone-duo/` into your React project. Install `three` and `motion`, and copy the model and desired screen assets into your public directory. DialKit belongs to the demo shell and is not required by the component.
+Every push to `main` builds the site and publishes it to GitHub Pages via `.github/workflows/pages.yml`. The workflow sets `BASE_PATH=/dood-iphone-duo/` so asset URLs resolve under the repository sub-path; local dev keeps `/`.
 
-```tsx
-import {
-  AppleCredit,
-  FoldablePhone,
-  FoldScrubber,
-  FoldToggle,
-  PhoneBackground,
-  PhoneDevice,
-} from './iphone-duo'
+## Attribution
 
-export function PhoneDemo() {
-  return (
-    <FoldablePhone duration={2}>
-      <PhoneBackground />
-      <PhoneDevice
-        modelSrc="/models/iphone-duo.glb"
-        screenSrc="/wallpapers/apple-desert.avif"
-        coverSrc="/wallpapers/apple-desert-cover.avif"
-        screenOverlaySrc="/wallpapers/home-apps.svg"
-        coverOverlaySrc="/wallpapers/home-cover.svg"
-        revealSrc="/wallpapers/home-photo.svg"
-        blur={48}
-        parallax={1}
-      />
-      <FoldToggle />
-      <FoldScrubber />
-      <AppleCredit />
-    </FoldablePhone>
-  )
-}
-```
-
-Give the device container an explicit height. `src/iphone-duo/foldable-phone.css` supplies the base styles; `src/app.css` contains the demo layout.
-
-### Parts and props
-
-| Part | Purpose |
-| --- | --- |
-| `FoldablePhone` | Owns transition progress. Accepts `defaultValue`, `value`, `onValueChange`, and `duration` in seconds. |
-| `PhoneDevice` | Renders the model and handles pointer interaction. |
-| `FoldToggle` | Accessible fold/unfold button. Accepts custom children and native button props. |
-| `FoldScrubber` | Native keyboard-accessible range input. |
-| `PhoneBackground` | Decorative background slot. Accepts children and native div props. |
-| `AppleCredit` | Visible link to the model source. |
-| `useFoldablePhone()` | Returns the `progress` MotionValue, `setValue(number)`, and `toggle(instant?)`. |
-
-Progress runs from `0` (closed) to `1` (open and settled). It describes the whole transition, not a linear hinge angle. The hinge finishes before the incoming card finishes sharpening. `duration` defaults to `2`; the demo uses `2` seconds.
-
-`PhoneDevice` accepts:
-
-| Prop | Default | Meaning |
-| --- | --- | --- |
-| `modelSrc` | Required | URL of the prepared GLB. |
-| `screenSrc` | Required | Inner-screen background image. |
-| `coverSrc` | `screenSrc` | Cover-screen background image. |
-| `screenOverlaySrc` | None | Transparent, anchored inner-screen content. |
-| `coverOverlaySrc` | None | Transparent cover-screen content. |
-| `revealSrc` | None | Transparent incoming card layer. |
-| `rotation` | `-6` | Static device rotation in degrees. |
-| `exposure` | `1.2` | Hardware lighting exposure. |
-| `blur` | `28` | Maximum screen blur in source-texture pixels. |
-| `parallax` | `1` | Fold-driven screen-layer movement. Set to `0` to disable. |
-
-Use transparent PNGs or self-contained SVGs for content layers. Inner-screen assets use a `1600 × 1120` canvas; cover assets use `800 × 1120`. Images fill their respective surfaces. Keep the incoming card on the left and anchored content on the right to follow the demo's blur boundary. Custom images need same-origin access or suitable CORS headers.
-
-Screen content is rendered into WebGL textures, not interactive HTML. Put accessible actions outside the phone. Keyboard activation and reduced-motion preferences skip animated toggles; reduced motion also disables content parallax.
-
-## How the fold works
-
-The model's two halves share a hinge on the display plane. There is no added black crease stripe. Screen shaders composite the wallpaper, anchored content, and incoming card separately. The cover blurs as it turns away. The card slides and scales into place on the left, then sharpens while the right-side content stays readable. Cursor movement does not tilt the device or drive the screen effect.
-
-The prepared GLB avoids splitting the USD geometry on every page load. To regenerate it, run the dev server on port 5201, then:
-
-```sh
-node scripts/prepare-model.mjs
-```
-
-The preparation script uses the included landscape-pose USDZ derived from Apple's original model. Arbitrary GLBs are not drop-in replacements: the runtime expects a `folding-half` node and `inner-screen` / `cover-screen` materials.
-
-To regenerate the original SVG icons, widgets, and Factory card:
-
-```sh
-node scripts/create-screens.mjs
-```
-
-## License and attribution
-
-The source code and original SVG screen artwork are [MIT licensed](LICENSE). Apple's model, embedded model textures, and desert wallpapers are **not** covered by that license. Mastra's name remains its owner's trademark. See [THIRD_PARTY.md](THIRD_PARTY.md) before redistributing or using the included third-party assets.
-
-This repository is a source-distributed component and demo, not a published npm package.
+Apple's model and its textures are not covered by the MIT license; see `THIRD_PARTY.md` before redistributing. The folding component in `src/iphone-duo/` is MIT-licensed by its original author.

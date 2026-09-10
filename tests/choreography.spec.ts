@@ -30,6 +30,8 @@ test('late screen settling leaves the right grid and hardware unchanged', async 
   if (!bounds) throw new Error('Missing device canvas')
   const left = { x: bounds.x + bounds.width * 0.24, y: bounds.y + bounds.height * 0.3, width: bounds.width * 0.23, height: bounds.height * 0.35 }
   const right = { x: bounds.x + bounds.width * 0.57, y: bounds.y + bounds.height * 0.3, width: bounds.width * 0.15, height: bounds.height * 0.35 }
+  await page.evaluate(() => { for (const video of document.querySelectorAll<HTMLVideoElement>('video[data-duo-screen-video]')) { video.dataset.manual = 'true'; video.pause() } })
+  await page.locator('video[data-duo-screen-video="open"]').evaluate(video => new Promise<void>(resolve => { video.addEventListener('seeked', () => resolve(), { once: true }); video.currentTime = 0 }))
   const slider = page.getByRole('slider', { name: 'Fold angle', exact: true })
   await slider.fill('0.975')
   await expect(page.locator('.duo-device')).toHaveAttribute('data-progress', '0.975')

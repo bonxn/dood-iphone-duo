@@ -7,7 +7,7 @@ async function ready(page: Page) {
 }
 
 async function seek(page: Page, value: string) {
-  await page.getByRole('slider', { name: 'Fold angle', exact: true }).fill(value)
+  await page.getByRole('slider', { name: 'Fold angle', exact: true }).fill(String(Number(value))) // range inputs reject non-canonical strings like '0.400'
   await expect(page.locator('.duo-device')).toHaveAttribute('data-progress', Number(value).toFixed(3))
 }
 
@@ -25,35 +25,20 @@ test('loads the Apple model, folds, reverses, and credits its source', async ({ 
   expect(errors).toEqual([])
 })
 
-test('keyboard controls are immediate and fold amount persists', async ({ page }) => {
+test('keyboard controls are immediate and the angle readout follows', async ({ page }) => {
   await ready(page)
   await page.getByRole('button', { name: 'Unfold', exact: true }).focus()
   await page.keyboard.press('Enter')
   await expect(page.locator('.duo-device')).toHaveAttribute('data-progress', '1.000')
+  await expect(page.getByRole('status', { name: 'Opening angle' })).toHaveText('180°')
   await seek(page, '0.35')
-  await page.reload()
-  await expect(page.locator('.duo-device')).toHaveAttribute('data-progress', '0.350')
+  await expect(page.getByRole('status', { name: 'Opening angle' })).toHaveText('63°')
   const slider = page.getByRole('slider', { name: 'Fold angle', exact: true })
   await slider.focus()
   await page.keyboard.press('Home')
   await expect(slider).toHaveValue('0')
   await page.keyboard.press('End')
   await expect(slider).toHaveValue('1')
-})
-
-test('progressive blur changes screen pixels while hardware stays sharp', async ({ page }) => {
-  await ready(page)
-  await seek(page, '0.2')
-  await page.getByRole('button', { name: 'Tune', exact: true }).click()
-  const blur = page.getByRole('slider', { name: 'Blur', exact: true })
-  await expect(blur).toBeVisible()
-  const blurred = await page.locator('.duo-device canvas').screenshot()
-  await blur.focus()
-  await page.keyboard.press('Home')
-  const sharp = await page.locator('.duo-device canvas').screenshot()
-  expect(blurred.equals(sharp)).toBe(false)
-  await page.keyboard.press('End')
-  await page.locator('.duo-device canvas').screenshot({ path: 'test-results/blur-maximum.png' })
 })
 
 test('dragging reverses without snapping and cancellation restores its start', async ({ page }) => {
@@ -75,11 +60,9 @@ test('dragging reverses without snapping and cancellation restores its start', a
   await expect(page.locator('.duo-device')).toHaveAttribute('data-progress', '0.000')
 })
 
-test('wallpapers and theme change without resetting fold', async ({ page }) => {
+test('theme changes without resetting fold', async ({ page }) => {
   await ready(page)
   await seek(page, '0.7')
-  await page.getByRole('button', { name: 'tide wallpaper' }).click()
-  await expect(page.getByRole('button', { name: 'tide wallpaper' })).toHaveAttribute('aria-pressed', 'true')
   await page.getByRole('button', { name: 'Light mode' }).click()
   await expect(page.getByRole('button', { name: 'Dark mode' })).toBeVisible()
   await expect(page.locator('.duo-device')).toHaveAttribute('data-progress', '0.700')
@@ -105,6 +88,34 @@ test('mobile contains controls and supports tapping', async ({ browser }) => {
   await expect(page.getByRole('link', { name: 'Model by Apple' })).toBeInViewport()
   await page.screenshot({ path: 'test-results/mobile.png', fullPage: true })
   await context.close()
+})
+
+test('opening plays the opening screen video and closing switches to the closing one', async ({ page }) => {
+  await ready(page)
+  const open = page.locator('video[data-duo-screen-video="open"]')
+  const close = page.locator('video[data-duo-screen-video="close"]')
+  await expect.poll(() => open.evaluate(element => element.readyState)).toBeGreaterThanOrEqual(2)
+  await expect.poll(() => close.evaluate(element => element.readyState)).toBeGreaterThanOrEqual(2)
+  await expect(open).toHaveAttribute('data-active', 'true')
+  const openStart = Number(await open.getAttribute('data-video-start'))
+  const closeStart = Number(await close.getAttribute('data-video-start'))
+  expect(openStart).toBeLessThan(closeStart)
+  const onStep = (value: number) => (Math.round(value / 0.005) * 0.005).toFixed(3) // slider step is 0.005
+  await seek(page, onStep(openStart - 0.1))
+  expect(await open.evaluate(element => element.paused)).toBe(true)
+  await seek(page, onStep(openStart + 0.05))
+  await expect.poll(() => open.evaluate(element => !element.paused && element.currentTime > 0)).toBe(true)
+  await expect(open).toHaveAttribute('data-active', 'true')
+  await seek(page, onStep(closeStart + 0.05))
+  await seek(page, onStep(closeStart - 0.05))
+  await expect.poll(() => open.evaluate(element => element.paused)).toBe(true)
+  await expect.poll(() => close.evaluate(element => !element.paused && element.currentTime > 0)).toBe(true)
+  await expect(close).toHaveAttribute('data-active', 'true')
+  await seek(page, onStep(openStart - 0.1))
+  await seek(page, onStep(openStart + 0.05))
+  await expect.poll(() => close.evaluate(element => element.paused)).toBe(true)
+  await expect.poll(() => open.evaluate(element => !element.paused && element.currentTime < 1.5)).toBe(true) // restarted from 0 (headless software decoding can leap ahead after play)
+  await expect(open).toHaveAttribute('data-active', 'true')
 })
 
 test('model failure is explicit', async ({ page }) => {
