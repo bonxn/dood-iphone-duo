@@ -47,11 +47,19 @@ def light(rows, x, y): return rows[y][x * 4] > 0x80
 def has_alpha(rows, w, h):
     return any(rows[y][x * 4 + 3] < 255 for y in range(0, h, 5) for x in range(0, w, 5))
 
+SOLID = 128  # alpha threshold: ignores faint drop-shadow rows Figma exports around the frame
+
 def crop_to_opaque(rows, w, h):
-    ys = [y for y in range(h) if any(rows[y][x * 4 + 3] > 0 for x in range(0, w, 4))]
-    xs = [x for x in range(w) if any(rows[y][x * 4 + 3] > 0 for y in range(0, h, 4))]
+    ys = [y for y in range(h) if any(rows[y][x * 4 + 3] >= SOLID for x in range(0, w, 4))]
+    xs = [x for x in range(w) if any(rows[y][x * 4 + 3] >= SOLID for y in range(0, h, 4))]
     x0, x1, y0, y1 = xs[0], xs[-1] + 1, ys[0], ys[-1] + 1
-    return x1 - x0, y1 - y0, [r[x0 * 4:x1 * 4] for r in rows[y0:y1]]
+    cropped = [bytearray(r[x0 * 4:x1 * 4]) for r in rows[y0:y1]]
+    # Non-opaque pixels (corner arcs, edge antialiasing) carry black/white RGB in Figma exports; texture
+    # filtering and mipmaps blend that RGB into neighbours as a grey fringe. Give them the paper colour.
+    for row in cropped:
+        for x in range(x1 - x0):
+            if row[x * 4 + 3] < 255: row[x * 4:x * 4 + 3] = bytes((PAPER, PAPER, PAPER))
+    return x1 - x0, y1 - y0, cropped
 
 def process(src, dst, crop, corners):
     w, h, rows = read_png(src)
